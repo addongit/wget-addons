@@ -4,5 +4,3 @@ http://www.wowinterface.com/downloads/download19009
 http://www.wowinterface.com/downloads/download16332
 ; POWA
 http://www.wowinterface.com/downloads/download8579
-; Codersuite
-http://www.wowinterface.com/downloads/download19681

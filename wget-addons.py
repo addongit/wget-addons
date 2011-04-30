@@ -34,7 +34,6 @@ def download(url, localFileName = None):
   f.write(r.read())
   f.close()
 
-
 def unzip(path, archive=False):
   if not os.path.exists(path): raise Exception('%s does not exist.' % path)
   os.chdir(path)
@@ -91,21 +90,22 @@ def Main(opts):
   config = initConfig( opts['config'] )
   config.read(config.cfg_path)
    
-  app_settings = { 'profiles':        opts['profiles'] if len(opts['profiles']) > 0 else ['master'],
+  app_settings = { 'profiles':        opts['profiles'] if len(opts['profiles']) > 0 else ['common'],
                    'config':          opts['config'],
                    'verbose':         opts['verbose'],
                    'dry_run':         opts['dry_run'],
                    'profiles_folder': opts['profiles_folder'] if opts['profiles_folder'] else os.path.join( sys.path[0], config.get('local', 'profilesDirectory') ),
                    'depot_folder':    opts['depot_folder'] if opts['depot_folder'] else config.get('local', 'depotDirectory'),
                    'extract':         opts['extract'],
-                   'archive':         opts['archive']
+                   'archive':         opts['archive'],
+                   'merge_common':    opts['common']
                  }
 
-  VERBOSE = app_settings['verbose']
-  DRY_RUN = app_settings['dry_run']
+  verbose = app_settings['verbose']
+  dry_run = app_settings['dry_run']
 
-  if VERBOSE: print 'VERBOSE Mode Enabled.'
-  if DRY_RUN: print '<<< DRY RUN >>> '
+  if verbose: print 'VERBOSE Mode Enabled.'
+  if dry_run: print '<<< DRY RUN >>> '
 
   # Use what was passed in for branch name
   # If 'all', determine which branches are present and use them instead.
@@ -121,15 +121,70 @@ def Main(opts):
 
   cwd = os.getcwd()
   os.chdir( app_settings['depot_folder'] )
+  
+  master_path = os.path.join(app_settings['depot_folder'], 'master')
+
+  if not os.path.exists(master_path): os.makedirs(master_path)
 
   for profile in addons_profiles:
     full_depot_profile = os.path.join( app_settings['depot_folder'], profile.split('.')[0] )
-    if not os.path.exists( full_depot_profile ): os.makedirs( full_depot_profile )
+    
+    if not os.path.exists( full_depot_profile ): 
+      if dry_run:
+        print 'mkdir %s' % full_depot_profile
+      else:
+        os.makedirs( full_depot_profile )
+    
     os.chdir(full_depot_profile)
+    
     profile_full_path = os.path.join(app_settings['profiles_folder'], profile)
+    
     for a in get_addons_list( profile_full_path ):
-      download(a)
-      if app_settings['extract']: unzip( full_depot_profile, app_settings['archive'] )
+      if dry_run: 
+        print 'download %s' % a
+      else:
+        download(a)
+        # hacking master in
+        os.chdir(master_path)
+        download(a)
+        os.chdir(full_depot_profile)
+
+      if app_settings['extract']: 
+        if dry_run:
+          print 'unzip %s\narchive=%s' % ( full_depot_profile, app_settings['archive'] )
+        else:
+          unzip( full_depot_profile, app_settings['archive'] )
+          os.chdir(master_path)
+          unzip( master_path, app_settings['archive'] )
+          os.chdir(full_depot_profile)
+
+  common_addons_path = os.path.join(app_settings['depot_folder'], 'common')
+  common_addons_list = os.listdir(common_addons_path)
+
+  print '--common: %s' % app_settings['merge_common']
+  if len(common_addons_list) == 1 and '_archive' in common_addons_list or len(common_addons_list) == 0: app_settings['merge_common'] = False
+  print '--common: %s' % app_settings['merge_common']
+
+  if app_settings['merge_common']:
+    for profile in addons_profiles:
+      # if common, we have nothing to merge ;)
+      if 'common' in profile: continue
+      print 'Merging common to profile: %s' % profile
+      
+      for addon in common_addons_list:
+        # if its the _archive directory or a single file of any type, skip it
+        addon_src_path = os.path.join(common_addons_path, addon)
+
+        if '_archive' == addon or not os.path.isdir(addon_src_path): continue
+        
+        full_depot_profile = os.path.join( app_settings['depot_folder'], profile.split('.')[0] )
+        addon_dst_path = os.path.join(full_depot_profile, addon)
+
+        if dry_run:
+          print 'copying %s to %s' % (addon_src_path, addon_dst_path)
+        else:
+          shutil.copytree(addon_src_path, addon_dst_path)
+
 
   print os.listdir('./')
 
@@ -178,6 +233,12 @@ if __name__ == '__main__':
                         dest='archive',
                         help='Archive.')
     
+    _parser.add_option('--common',
+                        action='store_true',
+                        default=False,
+                        dest='common',
+                        help='Merge common addons with profiles.')
+    
     _parser.add_option('--addons-depot-folder',
                        action='store',
                        type='string',
@@ -208,7 +269,8 @@ if __name__ == '__main__':
              'config':          _opts.config,
              'dry_run':         _opts.dry_run, 
              'extract':         _opts.extract,
-             'archive':         _opts.archive 
+             'archive':         _opts.archive, 
+             'common':          _opts.common 
            }
 
     return opts
